@@ -14,7 +14,7 @@ import {
 
 const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
 
-export default function ToolDetailClient({ toolId, machineId }) {
+export default function ToolDetailClient({ toolId, machineId, defaultBaseUrl = "" }) {
   const tool = CLI_TOOLS[toolId];
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +122,7 @@ export default function ToolDetailClient({ toolId, machineId }) {
   const getBaseUrl = () => {
     if (tunnelEnabled && tunnelPublicUrl) return tunnelPublicUrl;
     if (cloudEnabled && CLOUD_URL) return CLOUD_URL;
+    if (defaultBaseUrl) return defaultBaseUrl;
     if (typeof window !== "undefined") return window.location.origin;
     return "http://localhost:20128";
   };

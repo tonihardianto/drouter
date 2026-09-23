@@ -3,41 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
 import { readPresets, upsertPreset, deletePreset, subscribePresets, stripSlash } from "./cliEndpointPresets";
+import { buildEndpointOptions, ensureV1 } from "./cliEndpointOptions";
 
 const CUSTOM_VALUE = "__custom__";
 const SAVE_VALUE = "__save__";
-
-const ensureV1 = (url) => {
-  const trimmed = (url || "").replace(/\/+$/, "");
-  if (!trimmed) return "";
-  return /\/v1$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
-};
-
-const buildOptions = ({ requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1 }) => {
-  const opts = [];
-  const wrap = (url) => (withV1 ? ensureV1(url) : (url || "").replace(/\/+$/, ""));
-  if (!requiresExternalUrl) {
-    const localUrl = wrap(`http://127.0.0.1:${UPDATER_CONFIG.appPort}`);
-    opts.push({ value: "local", label: localUrl, url: localUrl });
-  }
-  if (tunnelEnabled && tunnelPublicUrl) {
-    const u = wrap(tunnelPublicUrl);
-    opts.push({ value: "tunnel", label: u, url: u });
-  }
-  if (tailscaleEnabled && tailscaleUrl) {
-    const u = wrap(tailscaleUrl);
-    opts.push({ value: "tailscale", label: u, url: u });
-  }
-  if (cloudEnabled && cloudUrl) {
-    const u = wrap(cloudUrl);
-    opts.push({ value: "cloud", label: u, url: u });
-  }
-  savedPresets.forEach((p) => {
-    opts.push({ value: `saved:${p.name}`, label: p.baseUrl, url: p.baseUrl, saved: true });
-  });
-  opts.push({ value: CUSTOM_VALUE, label: "Custom URL...", url: "" });
-  return opts;
-};
 
 export default function BaseUrlSelect({
   value,
@@ -58,6 +27,7 @@ export default function BaseUrlSelect({
   const [customInput, setCustomInput] = useState("");
   const initializedRef = useRef(false);
   const customInputRef = useRef("");
+  const [initialLocalUrl] = useState(() => value || `http://127.0.0.1:${UPDATER_CONFIG.appPort}`);
 
   useEffect(() => {
     const sync = () => {
@@ -81,8 +51,22 @@ export default function BaseUrlSelect({
   }, []);
 
   const options = useMemo(
-    () => buildOptions({ requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1 }),
-    [requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1]
+    () => [
+      ...buildEndpointOptions({
+        localUrl: initialLocalUrl,
+        requiresExternalUrl,
+        tunnelEnabled,
+        tunnelPublicUrl,
+        tailscaleEnabled,
+        tailscaleUrl,
+        cloudEnabled,
+        cloudUrl,
+        savedPresets,
+        withV1,
+      }),
+      { value: CUSTOM_VALUE, label: "Custom URL...", url: "" },
+    ],
+    [initialLocalUrl, requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1]
   );
 
   // Prefer a saved preset matching the currently configured URL, else first option
