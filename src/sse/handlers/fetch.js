@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -33,6 +34,8 @@ export async function handleFetch(request) {
   const reqUrl = new URL(request.url);
   // Accept either `provider` or `model` (UI sends `model` since provider IS the model for webFetch)
   const providerInput = body.provider || body.model;
+  const deniedModel = providerInput ? await enforceModelAccess(request, providerInput) : null;
+  if (deniedModel) return deniedModel;
   const targetUrl = body.url;
   const format = body.format;
   const maxCharacters = body.max_characters;

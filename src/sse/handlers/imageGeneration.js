@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -34,6 +35,8 @@ export async function handleImageGeneration(request) {
   const wantsStream = (request.headers.get("accept") || "").includes("text/event-stream");
   const binaryOutput = url.searchParams.get("response_format") === "binary";
   const modelStr = body.model;
+  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
+  if (deniedModel) return deniedModel;
 
   const apiKey = extractApiKey(request);
   const settings = await getSettings();

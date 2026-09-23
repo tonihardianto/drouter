@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -32,6 +33,8 @@ export async function handleSearch(request) {
   const url = new URL(request.url);
   // Accept either `provider` or `model` (UI sends `model` since provider IS the model for webSearch)
   const providerInput = body.provider || body.model;
+  const deniedModel = providerInput ? await enforceModelAccess(request, providerInput) : null;
+  if (deniedModel) return deniedModel;
   const query = body.query;
 
   log.request("POST", `${url.pathname} | ${providerInput}`);

@@ -23,9 +23,11 @@ export default function APIPageClient({ machineId }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyLimits, setNewKeyLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
+  const [newAllowedModels, setNewAllowedModels] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
   const [editLimits, setEditLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
+  const [editAllowedModels, setEditAllowedModels] = useState("");
   const [confirmState, setConfirmState] = useState(null);
 
   const [requireApiKey, setRequireApiKey] = useState(false);
@@ -632,7 +634,7 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: newKeyName, ...newKeyLimits }),
+          body: JSON.stringify({ name: newKeyName, ...newKeyLimits, allowedModels: newAllowedModels === "" ? null : newAllowedModels.split(",").map((m) => m.trim()).filter(Boolean) }),
       });
       const data = await res.json();
 
@@ -641,6 +643,7 @@ export default function APIPageClient({ machineId }) {
         await fetchData();
         setNewKeyName("");
         setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
+        setNewAllowedModels("");
         setShowAddModal(false);
       }
     } catch (error) {
@@ -693,6 +696,7 @@ export default function APIPageClient({ machineId }) {
       dailyRequestLimit: key.dailyRequestLimit ?? "",
       monthlyTokenLimit: key.monthlyTokenLimit ?? "",
     });
+    setEditAllowedModels(key.allowedModels === null ? "" : (key.allowedModels || []).join(", "));
   };
 
   const handleSaveKeyLimits = async () => {
@@ -700,7 +704,7 @@ export default function APIPageClient({ machineId }) {
     const res = await fetch(`/api/keys/${editingKey.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editLimits),
+      body: JSON.stringify({ ...editLimits, allowedModels: editAllowedModels === "" ? null : editAllowedModels.split(",").map((m) => m.trim()).filter(Boolean) }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -1067,7 +1071,7 @@ export default function APIPageClient({ machineId }) {
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </p>
                   <p className="text-xs text-text-muted mt-1">
-                    Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens
+                    Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens · {key.allowedModels === null ? "All models" : `${key.allowedModels?.length || 0} models`}
                   </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>

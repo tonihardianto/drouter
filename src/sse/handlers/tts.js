@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   extractApiKey, isValidApiKey,
   getProviderCredentials, markAccountUnavailable,
@@ -28,6 +29,8 @@ export async function handleTts(request) {
 
   const url = new URL(request.url);
   const modelStr = body.model;
+  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
+  if (deniedModel) return deniedModel;
   const responseFormat = url.searchParams.get("response_format") || "mp3"; // mp3 (default) | json
   const language = body.language || ""; // Optional language hint (currently used by Gemini)
   const style = body.style || ""; // Optional style/voice instructions (e.g. Xiaomi MiMo)

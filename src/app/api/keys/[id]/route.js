@@ -21,7 +21,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { isActive, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit } = body;
+    const { isActive, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels } = body;
 
     const existing = await getApiKeyById(id);
     if (!existing) {
@@ -33,6 +33,7 @@ export async function PUT(request, { params }) {
     if (dailyTokenLimit !== undefined) updateData.dailyTokenLimit = dailyTokenLimit;
     if (dailyRequestLimit !== undefined) updateData.dailyRequestLimit = dailyRequestLimit;
     if (monthlyTokenLimit !== undefined) updateData.monthlyTokenLimit = monthlyTokenLimit;
+    if (allowedModels !== undefined) updateData.allowedModels = allowedModels;
 
     const updated = await updateApiKey(id, updateData);
 
