@@ -30,6 +30,7 @@ export {
 // API keys
 export {
   getApiKeys, getApiKeyById, createApiKey, updateApiKey, deleteApiKey, validateApiKey,
+  reserveApiKeyRequest, incrementApiKeyUsage,
 } from "./repos/apiKeysRepo.js";
 
 // Combos
@@ -77,7 +78,12 @@ export async function exportDb() {
     providerConnections: db.all(`SELECT * FROM providerConnections`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, provider: r.provider, authType: r.authType, name: r.name, email: r.email, priority: r.priority, isActive: r.isActive === 1, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     providerNodes: db.all(`SELECT * FROM providerNodes`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     proxyPools: db.all(`SELECT * FROM proxyPools`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    apiKeys: db.all(`SELECT * FROM apiKeys`).map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, createdAt: r.createdAt })),
+    apiKeys: db.all(`SELECT * FROM apiKeys`).map((r) => ({
+      id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, createdAt: r.createdAt,
+      dailyTokenLimit: r.daily_token_limit, dailyRequestLimit: r.daily_request_limit, monthlyTokenLimit: r.monthly_token_limit,
+      tokensUsedToday: r.tokens_used_today || 0, requestsUsedToday: r.requests_used_today || 0, tokensUsedMonth: r.tokens_used_month || 0,
+      lastDailyResetAt: r.last_daily_reset_at, lastMonthlyResetAt: r.last_monthly_reset_at,
+    })),
     combos: db.all(`SELECT * FROM combos`).map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
     modelAliases: {},
     customModels: [],
@@ -137,8 +143,18 @@ export async function importDb(payload) {
     }
     for (const k of payload.apiKeys || []) {
       db.run(
-        `INSERT OR REPLACE INTO apiKeys(id, key, name, machineId, isActive, createdAt) VALUES(?, ?, ?, ?, ?, ?)`,
-        [k.id, k.key, k.name || null, k.machineId || null, k.isActive === false ? 0 : 1, k.createdAt || new Date().toISOString()]
+        `INSERT OR REPLACE INTO apiKeys(
+          id, key, name, machineId, isActive, createdAt,
+          daily_token_limit, daily_request_limit, monthly_token_limit,
+          tokens_used_today, requests_used_today, tokens_used_month,
+          last_daily_reset_at, last_monthly_reset_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          k.id, k.key, k.name || null, k.machineId || null, k.isActive === false ? 0 : 1, k.createdAt || new Date().toISOString(),
+          k.dailyTokenLimit ?? null, k.dailyRequestLimit ?? null, k.monthlyTokenLimit ?? null,
+          k.tokensUsedToday || 0, k.requestsUsedToday || 0, k.tokensUsedMonth || 0,
+          k.lastDailyResetAt || null, k.lastMonthlyResetAt || null,
+        ]
       );
     }
     for (const c of payload.combos || []) {

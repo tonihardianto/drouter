@@ -22,7 +22,10 @@ export default function APIPageClient({ machineId }) {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyLimits, setNewKeyLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
   const [createdKey, setCreatedKey] = useState(null);
+  const [editingKey, setEditingKey] = useState(null);
+  const [editLimits, setEditLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
   const [confirmState, setConfirmState] = useState(null);
 
   const [requireApiKey, setRequireApiKey] = useState(false);
@@ -629,7 +632,7 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName }),
+          body: JSON.stringify({ name: newKeyName, ...newKeyLimits }),
       });
       const data = await res.json();
 
@@ -637,6 +640,7 @@ export default function APIPageClient({ machineId }) {
         setCreatedKey(data.key);
         await fetchData();
         setNewKeyName("");
+        setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
         setShowAddModal(false);
       }
     } catch (error) {
@@ -679,6 +683,29 @@ export default function APIPageClient({ machineId }) {
       }
     } catch (error) {
       console.log("Error toggling key:", error);
+    }
+  };
+
+  const handleEditKey = (key) => {
+    setEditingKey(key);
+    setEditLimits({
+      dailyTokenLimit: key.dailyTokenLimit ?? "",
+      dailyRequestLimit: key.dailyRequestLimit ?? "",
+      monthlyTokenLimit: key.monthlyTokenLimit ?? "",
+    });
+  };
+
+  const handleSaveKeyLimits = async () => {
+    if (!editingKey) return;
+    const res = await fetch(`/api/keys/${editingKey.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editLimits),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setKeys((prev) => prev.map((key) => key.id === editingKey.id ? data.key : key));
+      setEditingKey(null);
     }
   };
 
@@ -1039,12 +1066,22 @@ export default function APIPageClient({ machineId }) {
                   <p className="text-xs text-text-muted mt-1">
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens
+                  </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Toggle
+                 <button
+                   onClick={() => handleEditKey(key)}
+                   className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                   title="Edit limits"
+                 >
+                   <span className="material-symbols-outlined text-[18px]">edit</span>
+                 </button>
+                 <Toggle
                     size="sm"
                     checked={key.isActive ?? true}
                     onChange={(checked) => {
@@ -1083,6 +1120,7 @@ export default function APIPageClient({ machineId }) {
         onClose={() => {
           setShowAddModal(false);
           setNewKeyName("");
+          setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
         }}
       >
         <div className="flex flex-col gap-4">
@@ -1091,6 +1129,27 @@ export default function APIPageClient({ machineId }) {
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Production Key"
+          />
+          <Input
+            label="Daily token limit (optional)"
+            type="number"
+            min="0"
+            value={newKeyLimits.dailyTokenLimit}
+            onChange={(e) => setNewKeyLimits((prev) => ({ ...prev, dailyTokenLimit: e.target.value }))}
+          />
+          <Input
+            label="Daily request limit (optional)"
+            type="number"
+            min="0"
+            value={newKeyLimits.dailyRequestLimit}
+            onChange={(e) => setNewKeyLimits((prev) => ({ ...prev, dailyRequestLimit: e.target.value }))}
+          />
+          <Input
+            label="Monthly token limit (optional)"
+            type="number"
+            min="0"
+            value={newKeyLimits.monthlyTokenLimit}
+            onChange={(e) => setNewKeyLimits((prev) => ({ ...prev, monthlyTokenLimit: e.target.value }))}
           />
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
@@ -1106,6 +1165,40 @@ export default function APIPageClient({ machineId }) {
             >
               Cancel
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!editingKey}
+        title={`Edit limits: ${editingKey?.name || "API key"}`}
+        onClose={() => setEditingKey(null)}
+      >
+        <div className="flex flex-col gap-4">
+          <Input
+            label="Daily token limit (optional)"
+            type="number"
+            min="0"
+            value={editLimits.dailyTokenLimit}
+            onChange={(e) => setEditLimits((prev) => ({ ...prev, dailyTokenLimit: e.target.value }))}
+          />
+          <Input
+            label="Daily request limit (optional)"
+            type="number"
+            min="0"
+            value={editLimits.dailyRequestLimit}
+            onChange={(e) => setEditLimits((prev) => ({ ...prev, dailyRequestLimit: e.target.value }))}
+          />
+          <Input
+            label="Monthly token limit (optional)"
+            type="number"
+            min="0"
+            value={editLimits.monthlyTokenLimit}
+            onChange={(e) => setEditLimits((prev) => ({ ...prev, monthlyTokenLimit: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <Button onClick={handleSaveKeyLimits} fullWidth>Save</Button>
+            <Button onClick={() => setEditingKey(null)} variant="ghost" fullWidth>Cancel</Button>
           </div>
         </div>
       </Modal>

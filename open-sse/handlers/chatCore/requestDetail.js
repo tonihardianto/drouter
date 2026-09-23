@@ -1,4 +1,5 @@
 import { saveRequestUsage, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
+import { incrementApiKeyUsage } from "@/lib/db/index.js";
 import { COLORS } from "../../utils/stream.js";
 import { canonicalizeUsage } from "../../utils/usageTracking.js";
 
@@ -130,4 +131,7 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
     apiKey: apiKey || undefined,
     endpoint: endpoint || null
   }).catch(() => {});
+  if (apiKey) {
+    incrementApiKeyUsage(apiKey, normalized.prompt_tokens + normalized.completion_tokens).catch(() => {});
+  }
 }
