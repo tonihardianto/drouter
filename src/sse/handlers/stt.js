@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   extractApiKey, isValidApiKey,
   getProviderCredentials, markAccountUnavailable,
@@ -26,6 +27,8 @@ export async function handleStt(request) {
   }
 
   const modelStr = formData.get("model");
+  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
+  if (deniedModel) return deniedModel;
   log.request("POST", `/v1/audio/transcriptions | ${modelStr}`);
 
   const settings = await getSettings();

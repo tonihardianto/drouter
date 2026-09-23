@@ -19,7 +19,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit } = body;
+    const { name, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels } = body;
 
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -27,7 +27,7 @@ export async function POST(request) {
 
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
-    const apiKey = await createApiKey(name, machineId, { dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit });
+    const apiKey = await createApiKey(name, machineId, { dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels });
 
     return NextResponse.json({
       key: apiKey.key,

@@ -1,4 +1,5 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { extractApiKey } from "@/lib/auth/apiKeyAccess";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
@@ -336,24 +337,7 @@ export async function clearAccountError(connectionId, currentConnection, model =
   await updateProviderConnection(connectionId, clearObj);
 }
 
-/**
- * Extract API key from request headers
- */
-export function extractApiKey(request) {
-  // Check Authorization header first
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
-  }
-
-  // Check Anthropic x-api-key header
-  const xApiKey = request.headers.get("x-api-key");
-  if (xApiKey) {
-    return xApiKey;
-  }
-
-  return null;
-}
+export { extractApiKey };
 
 /**
  * Validate API key (optional - for local use can skip)

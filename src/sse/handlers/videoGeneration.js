@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -112,6 +113,9 @@ export async function handleVideoCreate(request, action) {
 
   const bodyInfo = await readForwardableBody(request);
   if (bodyInfo.error) return bodyInfo.error;
+  const requestedModel = bodyInfo.parsed?.model;
+  const deniedModel = requestedModel ? await enforceModelAccess(request, String(requestedModel)) : null;
+  if (deniedModel) return deniedModel;
 
   const resolved = await resolveVideoProvider(bodyInfo.parsed);
   if (resolved.error) return resolved.error;

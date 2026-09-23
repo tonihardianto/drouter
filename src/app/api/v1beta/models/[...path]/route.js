@@ -1,3 +1,4 @@
+import { isRequestModelAllowed } from "@/lib/auth/apiKeyAccess";
 import { handleChat } from "@/sse/handlers/chat.js";
 import {
   clearAccountError,
@@ -240,6 +241,9 @@ async function forwardGeminiNativeRequest(request, body, model, action) {
   if (authError) return authError;
 
   const modelId = normalizeGeminiNativeModel(model);
+  if (!(await isRequestModelAllowed(request, `gemini/${modelId}`))) {
+    return Response.json({ error: { message: `Model is not allowed for this API key: ${modelId}`, type: "permission_error", code: "model_not_allowed" } }, { status: 403 });
+  }
   if (!GEMINI_NATIVE_MODEL_PATTERN.test(modelId)) {
     return Response.json({ error: { message: "Invalid model" } }, { status: 400 });
   }

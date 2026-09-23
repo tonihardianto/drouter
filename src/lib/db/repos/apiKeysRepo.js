@@ -8,11 +8,30 @@ function normalizeLimit(value) {
   return limit;
 }
 
+export function normalizeAllowedModels(value) {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value) || value.some((model) => typeof model !== "string")) {
+    throw new Error("allowedModels must be an array of model names or null");
+  }
+  return Array.from(new Set(value.map((model) => model.trim()).filter(Boolean)));
+}
+
+function parseAllowedModels(value) {
+  if (value === null || value === undefined) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? normalizeAllowedModels(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
 function keyFields(data = {}) {
   return {
     dailyTokenLimit: normalizeLimit(data.dailyTokenLimit),
     dailyRequestLimit: normalizeLimit(data.dailyRequestLimit),
     monthlyTokenLimit: normalizeLimit(data.monthlyTokenLimit),
+    allowedModels: normalizeAllowedModels(data.allowedModels),
   };
 }
 
@@ -33,6 +52,7 @@ function rowToKey(row) {
     tokensUsedMonth: row.tokens_used_month || 0,
     lastDailyResetAt: row.last_daily_reset_at || null,
     lastMonthlyResetAt: row.last_monthly_reset_at || null,
+    allowedModels: parseAllowedModels(row.allowed_models),
   };
 }
 
@@ -91,12 +111,12 @@ export async function createApiKey(name, machineId, data = {}) {
       id, key, name, machineId, isActive, createdAt,
       daily_token_limit, daily_request_limit, monthly_token_limit,
       tokens_used_today, requests_used_today, tokens_used_month,
-      last_daily_reset_at, last_monthly_reset_at
-    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      last_daily_reset_at, last_monthly_reset_at, allowed_models
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt,
       apiKey.dailyTokenLimit, apiKey.dailyRequestLimit, apiKey.monthlyTokenLimit,
-      0, 0, 0, now, now,
+      0, 0, 0, now, now, apiKey.allowedModels === null ? null : JSON.stringify(apiKey.allowedModels),
     ]
   );
   return apiKey;
@@ -112,11 +132,12 @@ export async function updateApiKey(id, data) {
     const limits = keyFields(merged);
     db.run(
       `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?,
-        daily_token_limit = ?, daily_request_limit = ?, monthly_token_limit = ?
+        daily_token_limit = ?, daily_request_limit = ?, monthly_token_limit = ?, allowed_models = ?
        WHERE id = ?`,
       [
         merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0,
-        limits.dailyTokenLimit, limits.dailyRequestLimit, limits.monthlyTokenLimit, id,
+        limits.dailyTokenLimit, limits.dailyRequestLimit, limits.monthlyTokenLimit,
+        limits.allowedModels === null ? null : JSON.stringify(limits.allowedModels), id,
       ]
     );
     result = { ...merged, ...limits };
@@ -130,11 +151,16 @@ export async function deleteApiKey(id) {
   return (res?.changes ?? 0) > 0;
 }
 
-export async function validateApiKey(key) {
+export async function getActiveApiKeyBySecret(key) {
+  if (!key) return null;
   const db = await getAdapter();
-  const row = db.get(`SELECT isActive FROM apiKeys WHERE key = ?`, [key]);
-  if (!row) return false;
-  return row.isActive === 1 || row.isActive === true;
+  const row = db.get(`SELECT * FROM apiKeys WHERE key = ?`, [key]);
+  const apiKey = rowToKey(row);
+  return apiKey?.isActive ? apiKey : null;
+}
+
+export async function validateApiKey(key) {
+  return Boolean(await getActiveApiKeyBySecret(key));
 }
 
 export async function reserveApiKeyRequest(key) {

@@ -1,3 +1,4 @@
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -40,6 +41,8 @@ export async function handleEmbeddings(request) {
 
   const url = new URL(request.url);
   const modelStr = body.model;
+  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
+  if (deniedModel) return deniedModel;
 
   log.request("POST", `${url.pathname} | ${modelStr}`);
 

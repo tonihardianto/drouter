@@ -9,6 +9,7 @@ import {
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
 import { getSettings, reserveApiKeyRequest } from "@/lib/localDb";
+import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -89,6 +90,8 @@ export async function handleChat(request, clientRawRequest = null) {
     log.warn("CHAT", "Missing model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   }
+  const deniedModel = await enforceModelAccess(request, modelStr);
+  if (deniedModel) return deniedModel;
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots
   const userAgent = request?.headers?.get("user-agent") || "";
