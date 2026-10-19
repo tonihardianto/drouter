@@ -91,7 +91,6 @@ export async function handleChat(request, clientRawRequest = null) {
     log.warn("CHAT", "Missing model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   }
-  if (deniedModel) return deniedModel;
 
   // Per-key access control: a restricted key may call only its listed combos and
   // models. Checked once on the requested target, before bypass, combo expansion
