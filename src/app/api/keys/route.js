@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiKeys, createApiKey } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
+import { validateKeyAccessInput } from "@/shared/utils/keyAccess.js";
 
 export const dynamic = "force-dynamic";
 
@@ -19,15 +20,20 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels } = body;
+    const { name, dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels, access } = body;
 
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
+    if (access !== undefined) {
+      const checked = validateKeyAccessInput(access);
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+    }
+
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
-    const apiKey = await createApiKey(name, machineId, { dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels });
+    const apiKey = await createApiKey(name, machineId, { dailyTokenLimit, dailyRequestLimit, monthlyTokenLimit, allowedModels, access });
 
     return NextResponse.json({
       key: apiKey.key,

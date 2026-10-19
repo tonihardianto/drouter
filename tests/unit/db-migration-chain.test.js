@@ -60,6 +60,26 @@ describe("Schema migrations", () => {
     expect(JSON.parse(settings.data)).toEqual({ foo: "bar" });
   });
 
+  it("converts legacy allowed_models into access columns on upgrade", async () => {
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const db = await getAdapter();
+    db.run(
+      `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, allowed_models) VALUES(?, ?, ?, ?, 1, ?, ?)`,
+      ["legacy", "legacy-key", "legacy", "machine", new Date().toISOString(), JSON.stringify(["fast", "openai/gpt-4.1"])]
+    );
+    db.run(`UPDATE _meta SET value = '3' WHERE key = 'schemaVersion'`);
+    db.close?.();
+
+    delete global._dbAdapter;
+    vi.resetModules();
+    const { getAdapter: getAdapter2 } = await import("@/lib/db/driver.js");
+    const db2 = await getAdapter2();
+    const row = db2.get(`SELECT accessRestricted, accessAllow FROM apiKeys WHERE id = 'legacy'`);
+
+    expect(row.accessRestricted).toBe(1);
+    expect(JSON.parse(row.accessAllow)).toEqual(["fast", "openai/gpt-4.1"]);
+  });
+
   it("fresh DB + legacy db.json → imports data automatically", async () => {
     // Simulate user upgrading: place legacy JSON in DATA_DIR before first boot
     const legacy = {

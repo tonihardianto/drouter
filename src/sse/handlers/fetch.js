@@ -1,4 +1,3 @@
-import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -14,6 +13,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
+import { getKeyAccessContext, enforceKeyAccessProvider } from "../services/keyAccess.js";
 import { assertPublicUrlResolved } from "@/shared/utils/ssrfGuard.js";
 
 /**
@@ -34,8 +34,6 @@ export async function handleFetch(request) {
   const reqUrl = new URL(request.url);
   // Accept either `provider` or `model` (UI sends `model` since provider IS the model for webFetch)
   const providerInput = body.provider || body.model;
-  const deniedModel = providerInput ? await enforceModelAccess(request, providerInput) : null;
-  if (deniedModel) return deniedModel;
   const targetUrl = body.url;
   const format = body.format;
   const maxCharacters = body.max_characters;
@@ -94,6 +92,11 @@ export async function handleFetch(request) {
   // Combo expansion: providerInput may be a combo name → run fallback/round-robin across providers
   const combos = await getCombos();
   const comboModels = getComboModelsFromData(providerInput, combos);
+
+  // Per-key access control: the provider IS the model here, so a
+  // restricted key needs the provider id (or the combo) on its list.
+  const keyAccessDenied = await enforceKeyAccessProvider(await getKeyAccessContext(request), providerInput, comboModels);
+  if (keyAccessDenied) return keyAccessDenied;
   if (comboModels) {
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[providerInput]?.fallbackStrategy || settings.comboStrategy || "fallback";

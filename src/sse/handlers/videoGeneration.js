@@ -1,4 +1,3 @@
-import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   getProviderCredentials,
   markAccountUnavailable,
@@ -8,6 +7,7 @@ import {
 } from "../services/auth.js";
 import { getSettings, getProviderConnectionById } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
+import { getKeyAccessContext, enforceKeyAccessResolved } from "../services/keyAccess.js";
 import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/handlers/videoCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -114,12 +114,17 @@ export async function handleVideoCreate(request, action) {
   const bodyInfo = await readForwardableBody(request);
   if (bodyInfo.error) return bodyInfo.error;
   const requestedModel = bodyInfo.parsed?.model;
-  const deniedModel = requestedModel ? await enforceModelAccess(request, String(requestedModel)) : null;
-  if (deniedModel) return deniedModel;
 
   const resolved = await resolveVideoProvider(bodyInfo.parsed);
   if (resolved.error) return resolved.error;
   const { provider, model } = resolved;
+
+  // Per-key access control: the routed provider/model must be listed. A body
+  // we cannot read a model from (multipart) is denied for restricted keys.
+  const keyAccessDenied = await enforceKeyAccessResolved(
+    await getKeyAccessContext(request), bodyInfo.parsed?.model ? String(bodyInfo.parsed.model) : "", provider, model
+  );
+  if (keyAccessDenied) return keyAccessDenied;
 
   // Strip the provider prefix (e.g. "xai/grok-imagine-video") before forwarding;
   // otherwise forward the original bytes untouched.

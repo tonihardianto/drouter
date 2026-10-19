@@ -1,10 +1,10 @@
-import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   extractApiKey, isValidApiKey,
   getProviderCredentials, markAccountUnavailable,
 } from "../services/auth.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
+import { getKeyAccessContext, enforceKeyAccess } from "../services/keyAccess.js";
 import { handleTtsCore } from "open-sse/handlers/ttsCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -29,8 +29,6 @@ export async function handleTts(request) {
 
   const url = new URL(request.url);
   const modelStr = body.model;
-  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
-  if (deniedModel) return deniedModel;
   const responseFormat = url.searchParams.get("response_format") || "mp3"; // mp3 (default) | json
   const language = body.language || ""; // Optional language hint (currently used by Gemini)
   const style = body.style || ""; // Optional style/voice instructions (e.g. Xiaomi MiMo)
@@ -46,6 +44,10 @@ export async function handleTts(request) {
 
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   if (!body.input) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: input");
+
+  // Per-key access control: requested target, before combo expansion.
+  const keyAccessDenied = await enforceKeyAccess(await getKeyAccessContext(request), modelStr);
+  if (keyAccessDenied) return keyAccessDenied;
 
   // Combo expansion: model may be a combo name → run fallback/round-robin across models
   const comboModels = await getComboModels(modelStr);

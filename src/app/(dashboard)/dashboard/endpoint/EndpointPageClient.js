@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal, ModelSelectModal } from "@/shared/components";
+import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
   TUNNEL_BENEFITS,
@@ -13,22 +13,21 @@ import {
   CLIENT_PING_FAST_MS,
 } from "./endpointConstants";
 import { clientPingUrl, clientPingAny } from "./endpointPing";
+import useSettingsStore from "@/store/settingsStore";
 import EndpointRow from "./components/EndpointRow";
 import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
+import KeyAccessControls from "./components/KeyAccessControls";
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyLimits, setNewKeyLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
-  const [newAllowedModels, setNewAllowedModels] = useState([]);
   const [createdKey, setCreatedKey] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
   const [editLimits, setEditLimits] = useState({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
-  const [editAllowedModels, setEditAllowedModels] = useState([]);
-  const [activeProviders, setActiveProviders] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
 
   const [requireApiKey, setRequireApiKey] = useState(false);
@@ -106,15 +105,6 @@ export default function APIPageClient({ machineId }) {
   useEffect(() => {
     fetchData();
     loadSettings();
-  }, []);
-
-  // Feed the allowed-models picker with the same active-provider list the combo
-  // form uses, so the two pickers show identical catalogs.
-  useEffect(() => {
-    fetch("/api/providers")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setActiveProviders(data.connections || []))
-      .catch((error) => console.log("Error fetching providers:", error));
   }, []);
 
   // Status poll: only while degraded (not yet reachable). Stop once healthy to avoid spam.
@@ -209,16 +199,15 @@ export default function APIPageClient({ machineId }) {
   const loadSettings = async () => {
     setTunnelChecking(true);
     try {
-      const [settingsRes, statusRes] = await Promise.all([
-        fetch("/api/settings"),
+      const [settingsData, statusRes] = await Promise.all([
+        useSettingsStore.getState().fetchSettings(),
         fetch("/api/tunnel/status", { cache: "no-store" })
       ]);
-      if (settingsRes.ok) {
-        const data = await settingsRes.json();
-        setRequireApiKey(data.requireApiKey || false);
-        setRequireLogin(data.requireLogin !== false);
-        setHasPassword(data.hasPassword || false);
-        setTunnelDashboardAccess(data.tunnelDashboardAccess || false);
+      if (settingsData) {
+        setRequireApiKey(settingsData.requireApiKey || false);
+        setRequireLogin(settingsData.requireLogin !== false);
+        setHasPassword(settingsData.hasPassword || false);
+        setTunnelDashboardAccess(settingsData.tunnelDashboardAccess || false);
       }
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -244,12 +233,8 @@ export default function APIPageClient({ machineId }) {
 
   const handleTunnelDashboardAccess = async (value) => {
     try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tunnelDashboardAccess: value }),
-      });
-      if (res.ok) setTunnelDashboardAccess(value);
+      const updated = await useSettingsStore.getState().patchSettings({ tunnelDashboardAccess: value });
+      if (updated) setTunnelDashboardAccess(value);
     } catch (error) {
       console.log("Error updating tunnelDashboardAccess:", error);
     }
@@ -257,12 +242,8 @@ export default function APIPageClient({ machineId }) {
 
   const handleRequireApiKey = async (value) => {
     try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requireApiKey: value }),
-      });
-      if (res.ok) setRequireApiKey(value);
+      const updated = await useSettingsStore.getState().patchSettings({ requireApiKey: value });
+      if (updated) setRequireApiKey(value);
     } catch (error) {
       console.log("Error updating requireApiKey:", error);
     }
@@ -644,7 +625,7 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: newKeyName, ...newKeyLimits, allowedModels: newAllowedModels.length === 0 ? null : newAllowedModels }),
+          body: JSON.stringify({ name: newKeyName, ...newKeyLimits }),
       });
       const data = await res.json();
 
@@ -653,7 +634,6 @@ export default function APIPageClient({ machineId }) {
         await fetchData();
         setNewKeyName("");
         setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
-        setNewAllowedModels([]);
         setShowAddModal(false);
       }
     } catch (error) {
@@ -706,7 +686,6 @@ export default function APIPageClient({ machineId }) {
       dailyRequestLimit: key.dailyRequestLimit ?? "",
       monthlyTokenLimit: key.monthlyTokenLimit ?? "",
     });
-    setEditAllowedModels(key.allowedModels || []);
   };
 
   const handleSaveKeyLimits = async () => {
@@ -714,12 +693,31 @@ export default function APIPageClient({ machineId }) {
     const res = await fetch(`/api/keys/${editingKey.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...editLimits, allowedModels: editAllowedModels.length === 0 ? null : editAllowedModels }),
+      body: JSON.stringify(editLimits),
     });
     if (res.ok) {
       const data = await res.json();
       setKeys((prev) => prev.map((key) => key.id === editingKey.id ? data.key : key));
       setEditingKey(null);
+    }
+  };
+
+  // Save a key's access (restricted flag + allow list).
+  const handleUpdateKeyAccess = async (id, access) => {
+    try {
+      const res = await fetch(`/api/keys/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.key) {
+        setKeys(prev => prev.map(k => k.id === id ? { ...k, access: data.key.access } : k));
+      } else {
+        console.log("Error updating key access:", data.error || res.status);
+      }
+    } catch (error) {
+      console.log("Error updating key access:", error);
     }
   };
 
@@ -1051,37 +1049,39 @@ export default function APIPageClient({ machineId }) {
             {keys.map((key) => (
               <div
                 key={key.id}
-                className={`group flex items-center justify-between py-3 border-b border-black/[0.03] dark:border-white/[0.03] last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
+                className={`group flex items-start justify-between gap-3 py-3 border-b border-black/[0.03] dark:border-white/[0.03] last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{key.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <code className="text-xs text-text-muted font-mono">
+                  <div className="flex items-center gap-2 mt-1 min-w-0 flex-wrap">
+                    <code className="text-xs text-text-muted font-mono break-all min-w-0">
                       {visibleKeys.has(key.id) ? key.key : maskKey(key.key)}
                     </code>
-                    <button
-                      onClick={() => toggleKeyVisibility(key.id)}
-                      className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
-                      title={visibleKeys.has(key.id) ? "Hide key" : "Show key"}
-                    >
-                      <span className="material-symbols-outlined text-[14px]">
-                        {visibleKeys.has(key.id) ? "visibility_off" : "visibility"}
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => copy(key.key, key.id)}
-                      className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
-                    >
-                      <span className="material-symbols-outlined text-[14px]">
-                        {copied === key.id ? "check" : "content_copy"}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => toggleKeyVisibility(key.id)}
+                        className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                        title={visibleKeys.has(key.id) ? "Hide key" : "Show key"}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">
+                          {visibleKeys.has(key.id) ? "visibility_off" : "visibility"}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => copy(key.key, key.id)}
+                        className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">
+                          {copied === key.id ? "check" : "content_copy"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-text-muted mt-1">
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </p>
                   <p className="text-xs text-text-muted mt-1">
-                    Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens · {key.allowedModels === null ? "All models" : `${key.allowedModels?.length || 0} models`}
+                    Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens · {key.access?.restricted ? `${key.access.allow.length} models` : "All models"}
                   </p>
                   <p className="text-xs text-text-muted mt-1">
                     Month: {key.tokensUsedMonth || 0} / {key.monthlyTokenLimit == null ? "Unlimited" : key.monthlyTokenLimit} tokens
@@ -1089,8 +1089,20 @@ export default function APIPageClient({ machineId }) {
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
+                  <KeyAccessControls
+                    apiKey={key}
+                    onChange={(access) => handleUpdateKeyAccess(key.id, access)}
+                    onRequestRestrict={() => setConfirmState({
+                      title: "Restrict API Key",
+                      message: `Restrict API key "${key.name}"?\n\nIt will only be able to call the combos and models you add. Until you add one, it can call nothing.`,
+                      onConfirm: async () => {
+                        setConfirmState(null);
+                        handleUpdateKeyAccess(key.id, { restricted: true, allow: key.access?.allow || [] });
+                      }
+                    })}
+                  />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 pt-0.5">
                  <button
                    onClick={() => handleEditKey(key)}
                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
@@ -1098,7 +1110,7 @@ export default function APIPageClient({ machineId }) {
                  >
                    <span className="material-symbols-outlined text-[18px]">edit</span>
                  </button>
-                 <Toggle
+                  <Toggle
                     size="sm"
                     checked={key.isActive ?? true}
                     onChange={(checked) => {
@@ -1138,8 +1150,7 @@ export default function APIPageClient({ machineId }) {
           setShowAddModal(false);
           setNewKeyName("");
           setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
-          setNewAllowedModels([]);
-        }}
+          }}
       >
         <div className="flex flex-col gap-4">
           <Input
@@ -1169,11 +1180,6 @@ export default function APIPageClient({ machineId }) {
             value={newKeyLimits.monthlyTokenLimit}
             onChange={(e) => setNewKeyLimits((prev) => ({ ...prev, monthlyTokenLimit: e.target.value }))}
           />
-          <AllowedModelsPicker
-            models={newAllowedModels}
-            onChange={setNewAllowedModels}
-            activeProviders={activeProviders}
-          />
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
               Create
@@ -1182,7 +1188,7 @@ export default function APIPageClient({ machineId }) {
               onClick={() => {
                 setShowAddModal(false);
                 setNewKeyName("");
-                setNewAllowedModels([]);
+                setNewKeyLimits({ dailyTokenLimit: "", dailyRequestLimit: "", monthlyTokenLimit: "" });
               }}
               variant="ghost"
               fullWidth
@@ -1219,11 +1225,6 @@ export default function APIPageClient({ machineId }) {
             min="0"
             value={editLimits.monthlyTokenLimit}
             onChange={(e) => setEditLimits((prev) => ({ ...prev, monthlyTokenLimit: e.target.value }))}
-          />
-          <AllowedModelsPicker
-            models={editAllowedModels}
-            onChange={setEditAllowedModels}
-            activeProviders={activeProviders}
           />
           <div className="flex gap-2">
             <Button onClick={handleSaveKeyLimits} fullWidth>Save</Button>
@@ -1429,94 +1430,4 @@ export default function APIPageClient({ machineId }) {
 
 APIPageClient.propTypes = {
   machineId: PropTypes.string.isRequired,
-};
-
-// Model allowlist picker: same catalog/combos as the combo form so a key can be
-// scoped to specific models with the familiar multi-select UI.
-function AllowedModelsPicker({ models, onChange, activeProviders }) {
-  const [showModelSelect, setShowModelSelect] = useState(false);
-  const [modelAliases, setModelAliases] = useState({});
-
-  useEffect(() => {
-    fetch("/api/models/alias")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setModelAliases(data.aliases || {}))
-      .catch((error) => console.log("Error fetching model aliases:", error));
-  }, []);
-
-  const handleSelect = (model) => {
-    if (!models.includes(model.value)) onChange([...models, model.value]);
-  };
-
-  const handleDeselect = (model) => {
-    onChange(models.filter((m) => m !== model.value));
-  };
-
-  const handleRemove = (index) => {
-    onChange(models.filter((_, i) => i !== index));
-  };
-
-  return (
-    <>
-      <div>
-        <label className="text-sm font-medium mb-1.5 block">Allowed models</label>
-        {models.length === 0 ? (
-          <>
-            <div className="text-center py-4 border border-dashed border-black/10 dark:border-white/10 rounded-lg bg-black/[0.01] dark:bg-white/[0.01]">
-              <span className="material-symbols-outlined text-text-muted text-xl mb-1">layers</span>
-              <p className="text-xs text-text-muted">All models allowed</p>
-            </div>
-            <p className="text-[10px] text-text-muted mt-1">
-              Leave empty to allow every model. Add models to restrict this key.
-            </p>
-          </>
-        ) : (
-          <div className="flex max-h-[220px] min-w-0 flex-wrap gap-1.5 overflow-y-auto">
-            {models.map((model, index) => (
-              <code
-                key={`${model}-${index}`}
-                className="group/chip inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-main dark:bg-white/5"
-              >
-                <span className="truncate max-w-[220px]">{model}</span>
-                <button
-                  onClick={() => handleRemove(index)}
-                  className="leading-none text-text-muted hover:text-red-500"
-                  title="Remove"
-                >
-                  <span className="material-symbols-outlined text-[12px]">close</span>
-                </button>
-              </code>
-            ))}
-          </div>
-        )}
-        <button
-          onClick={() => setShowModelSelect(true)}
-          className="w-full mt-2 py-2 border border-dashed border-black/10 dark:border-white/10 rounded-lg text-xs text-primary font-medium hover:text-primary hover:border-primary/50 transition-colors flex items-center justify-center gap-1"
-        >
-          <span className="material-symbols-outlined text-[16px]">add</span>
-          Add Model
-        </button>
-      </div>
-
-      {showModelSelect && (
-        <ModelSelectModal
-          isOpen={showModelSelect}
-          onClose={() => setShowModelSelect(false)}
-          onSelect={handleSelect}
-          onDeselect={handleDeselect}
-          activeProviders={activeProviders}
-          modelAliases={modelAliases}
-          title="Add Allowed Model"
-          addedModelValues={models}
-          closeOnSelect={false}
-        />
-      )}
-    </>
-  );
-}
-
-AllowedModelsPicker.propTypes = {
-  models: PropTypes.arrayOf(PropTypes.string).isRequired,
-  onChange: PropTypes.func.isRequired,
-  activeProviders: PropTypes.array,
 };

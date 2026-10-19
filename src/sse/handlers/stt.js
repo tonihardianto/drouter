@@ -1,10 +1,10 @@
-import { enforceModelAccess } from "@/lib/auth/apiKeyAccess";
 import {
   extractApiKey, isValidApiKey,
   getProviderCredentials, markAccountUnavailable,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getCustomModels } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
+import { getKeyAccessContext, enforceKeyAccessResolved } from "../services/keyAccess.js";
 import { handleSttCore } from "open-sse/handlers/sttCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -18,6 +18,23 @@ const CREDENTIALED_PROVIDERS = new Set(
     .map(([id]) => id)
 );
 
+// Custom-model transport marker: models registered through
+// /api/models/custom may pin a specialized STT transport (e.g.
+// "gemini-live"). The engine dispatches on the marker itself, so the app
+// layer only resolves it — same getModelInfo-style provider+model pairing,
+// restricted to type "stt" records.
+async function resolveCustomModelTransport(provider, model) {
+  try {
+    const customModels = await getCustomModels();
+    const hit = customModels.find((c) => c && c.type === "stt"
+      && c.providerAlias === provider && c.id === model
+      && typeof c.transport === "string" && c.transport.trim());
+    return hit ? hit.transport.trim() : null;
+  } catch {
+    return null; // DB unreadable → built-in registry marker still applies
+  }
+}
+
 export async function handleStt(request) {
   let formData;
   try {
@@ -27,8 +44,6 @@ export async function handleStt(request) {
   }
 
   const modelStr = formData.get("model");
-  const deniedModel = modelStr ? await enforceModelAccess(request, modelStr) : null;
-  if (deniedModel) return deniedModel;
   log.request("POST", `/v1/audio/transcriptions | ${modelStr}`);
 
   const settings = await getSettings();
@@ -46,11 +61,18 @@ export async function handleStt(request) {
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
   const { provider, model } = modelInfo;
+
+  // Per-key access control: checked before any credential lookup.
+  const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
+  if (keyAccessDenied) return keyAccessDenied;
+
   log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
+
+  const modelTransport = await resolveCustomModelTransport(provider, model);
 
   // noAuth providers
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleSttCore({ provider, model, formData, sttConfig: AI_PROVIDERS[provider]?.sttConfig });
+    const result = await handleSttCore({ provider, model, formData, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "STT failed");
   }
@@ -75,7 +97,7 @@ export async function handleStt(request) {
 
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
-    const result = await handleSttCore({ provider, model, formData, credentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig });
+    const result = await handleSttCore({ provider, model, formData, credentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
 
     if (result.success) return result.response;
 

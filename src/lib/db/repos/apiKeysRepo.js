@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
+import { keyAccessFromColumns, keyAccessToColumns } from "@/shared/utils/keyAccess.js";
+import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
 
 function normalizeLimit(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -16,23 +18,19 @@ export function normalizeAllowedModels(value) {
   return Array.from(new Set(value.map((model) => model.trim()).filter(Boolean)));
 }
 
-function parseAllowedModels(value) {
-  if (value === null || value === undefined) return null;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? normalizeAllowedModels(parsed) : null;
-  } catch {
-    return null;
-  }
-}
-
 function keyFields(data = {}) {
   return {
     dailyTokenLimit: normalizeLimit(data.dailyTokenLimit),
     dailyRequestLimit: normalizeLimit(data.dailyRequestLimit),
     monthlyTokenLimit: normalizeLimit(data.monthlyTokenLimit),
-    allowedModels: normalizeAllowedModels(data.allowedModels),
   };
+}
+
+function accessFromData(data = {}) {
+  if (data.access !== undefined) return data.access;
+  if (data.allowedModels === undefined) return undefined;
+  if (data.allowedModels === null) return KEY_ACCESS_UNRESTRICTED;
+  return { restricted: true, allow: normalizeAllowedModels(data.allowedModels) || [] };
 }
 
 function rowToKey(row) {
@@ -52,7 +50,7 @@ function rowToKey(row) {
     tokensUsedMonth: row.tokens_used_month || 0,
     lastDailyResetAt: row.last_daily_reset_at || null,
     lastMonthlyResetAt: row.last_monthly_reset_at || null,
-    allowedModels: parseAllowedModels(row.allowed_models),
+    access: keyAccessFromColumns(row.accessRestricted, row.accessAllow),
   };
 }
 
@@ -117,12 +115,21 @@ export async function getApiKeyById(id) {
   return rowToKey(row);
 }
 
+export async function getApiKeyByKey(key) {
+  if (!key) return null;
+  const db = await getAdapter();
+  const row = db.get(`SELECT * FROM apiKeys WHERE key = ?`, [key]);
+  return rowToKey(row);
+}
+
 export async function createApiKey(name, machineId, data = {}) {
   if (!machineId) throw new Error("machineId is required");
   const db = await getAdapter();
   const { generateApiKeyWithMachine } = await import("@/shared/utils/apiKey");
   const result = generateApiKeyWithMachine(machineId);
   const limits = keyFields(data);
+  const access = accessFromData(data) || KEY_ACCESS_UNRESTRICTED;
+  const cols = keyAccessToColumns(access);
   const now = new Date().toISOString();
   const apiKey = {
     id: uuidv4(),
@@ -132,23 +139,20 @@ export async function createApiKey(name, machineId, data = {}) {
     isActive: true,
     createdAt: now,
     ...limits,
-    tokensUsedToday: 0,
-    requestsUsedToday: 0,
-    tokensUsedMonth: 0,
-    lastDailyResetAt: now,
-    lastMonthlyResetAt: now,
+    access,
   };
   db.run(
     `INSERT INTO apiKeys(
       id, key, name, machineId, isActive, createdAt,
       daily_token_limit, daily_request_limit, monthly_token_limit,
       tokens_used_today, requests_used_today, tokens_used_month,
-      last_daily_reset_at, last_monthly_reset_at, allowed_models
-    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      last_daily_reset_at, last_monthly_reset_at,
+      accessRestricted, accessAllow
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt,
       apiKey.dailyTokenLimit, apiKey.dailyRequestLimit, apiKey.monthlyTokenLimit,
-      0, 0, 0, now, now, apiKey.allowedModels === null ? null : JSON.stringify(apiKey.allowedModels),
+      0, 0, 0, now, now, cols.accessRestricted, cols.accessAllow,
     ]
   );
   return apiKey;
@@ -162,17 +166,22 @@ export async function updateApiKey(id, data) {
     if (!row) return;
     const merged = { ...rowToKey(row), ...data };
     const limits = keyFields(merged);
+    const access = data.access !== undefined || data.allowedModels !== undefined
+      ? (accessFromData(data) || KEY_ACCESS_UNRESTRICTED)
+      : merged.access;
+    const cols = keyAccessToColumns(access);
     db.run(
       `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?,
-        daily_token_limit = ?, daily_request_limit = ?, monthly_token_limit = ?, allowed_models = ?
+        daily_token_limit = ?, daily_request_limit = ?, monthly_token_limit = ?,
+        accessRestricted = ?, accessAllow = ?
        WHERE id = ?`,
       [
         merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0,
         limits.dailyTokenLimit, limits.dailyRequestLimit, limits.monthlyTokenLimit,
-        limits.allowedModels === null ? null : JSON.stringify(limits.allowedModels), id,
+        cols.accessRestricted, cols.accessAllow, id,
       ]
     );
-    result = { ...merged, ...limits };
+    result = rowToKey(db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]));
   });
   return result;
 }

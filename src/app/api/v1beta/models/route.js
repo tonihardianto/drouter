@@ -1,5 +1,4 @@
 import { PROVIDER_MODELS } from "@/shared/constants/models";
-import { filterAllowedModels } from "@/lib/auth/apiKeyAccess";
 
 /**
  * Handle CORS preflight
@@ -55,8 +54,7 @@ export async function GET(request) {
       }
     }
 
-    const allowed = await filterAllowedModels(request, models.map((model) => ({ ...model, id: model.name.replace(/^models\//, "") })));
-    return Response.json({ models: allowed.map(({ id: _id, ...model }) => model) });
+    return Response.json({ models });
   } catch (error) {
     console.log("Error fetching models:", error);
     return Response.json({ error: { message: error.message } }, { status: 500 });

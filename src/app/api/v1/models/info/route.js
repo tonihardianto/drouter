@@ -1,7 +1,6 @@
 import { PROVIDER_MODELS } from "open-sse/config/providerModels.js";
 import { AI_PROVIDERS, ALIAS_TO_ID } from "@/shared/constants/providers";
 import { getModelKind } from "@/shared/constants/models";
-import { isRequestModelAllowed } from "@/lib/auth/apiKeyAccess";
 
 const KIND_ENDPOINT = {
   llm: "/v1/chat/completions",
@@ -95,7 +94,7 @@ export async function GET(request) {
     );
   }
   const info = lookup(id, kind);
-  if (!info || !(await isRequestModelAllowed(request, id))) {
+  if (!info) {
     return Response.json(
       { error: { message: `Model not found: ${id}`, type: "not_found" } },
       { status: 404, headers: { "Access-Control-Allow-Origin": "*" } },

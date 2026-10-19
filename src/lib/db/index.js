@@ -1,6 +1,8 @@
 // Public API barrel — all DB functions
 import { getAdapter } from "./driver.js";
 import { stringifyJson, parseJson } from "./helpers/jsonCol.js";
+import { keyAccessFromColumns, keyAccessToColumns, validateKeyAccessInput } from "@/shared/utils/keyAccess.js";
+import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
 
 // Settings
 export {
@@ -29,7 +31,8 @@ export {
 
 // API keys
 export {
-  getApiKeys, getApiKeyById, getActiveApiKeyBySecret, createApiKey, updateApiKey, deleteApiKey, validateApiKey,
+  getApiKeys, getApiKeyById, getApiKeyByKey, getActiveApiKeyBySecret,
+  createApiKey, updateApiKey, deleteApiKey, validateApiKey,
   reserveApiKeyRequest, incrementApiKeyUsage, normalizeAllowedModels,
 } from "./repos/apiKeysRepo.js";
 
@@ -83,7 +86,7 @@ export async function exportDb() {
       dailyTokenLimit: r.daily_token_limit, dailyRequestLimit: r.daily_request_limit, monthlyTokenLimit: r.monthly_token_limit,
       tokensUsedToday: r.tokens_used_today || 0, requestsUsedToday: r.requests_used_today || 0, tokensUsedMonth: r.tokens_used_month || 0,
       lastDailyResetAt: r.last_daily_reset_at, lastMonthlyResetAt: r.last_monthly_reset_at,
-      allowedModels: r.allowed_models === null || r.allowed_models === undefined ? null : parseJson(r.allowed_models, null),
+      access: keyAccessFromColumns(r.accessRestricted, r.accessAllow),
     })),
     combos: db.all(`SELECT * FROM combos`).map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
     modelAliases: {},
@@ -143,19 +146,32 @@ export async function importDb(payload) {
       );
     }
     for (const k of payload.apiKeys || []) {
+      // Per-key access: a backup without `access` (older version) restores
+      // unrestricted, exactly as before; a malformed `access` is refused.
+      // Legacy `allowedModels` backups are carried into the access columns.
+      let access = KEY_ACCESS_UNRESTRICTED;
+      if (k.access !== undefined) {
+        const checked = validateKeyAccessInput(k.access);
+        if (!checked.ok) throw new Error(`apiKeys ${k.id}: ${checked.error}`);
+        access = checked.value;
+      } else if (Array.isArray(k.allowedModels)) {
+        access = { restricted: true, allow: k.allowedModels.filter((entry) => typeof entry === "string") };
+      }
+      const cols = keyAccessToColumns(access);
       db.run(
         `INSERT OR REPLACE INTO apiKeys(
           id, key, name, machineId, isActive, createdAt,
           daily_token_limit, daily_request_limit, monthly_token_limit,
           tokens_used_today, requests_used_today, tokens_used_month,
-          last_daily_reset_at, last_monthly_reset_at, allowed_models
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          last_daily_reset_at, last_monthly_reset_at,
+          accessRestricted, accessAllow
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           k.id, k.key, k.name || null, k.machineId || null, k.isActive === false ? 0 : 1, k.createdAt || new Date().toISOString(),
           k.dailyTokenLimit ?? null, k.dailyRequestLimit ?? null, k.monthlyTokenLimit ?? null,
           k.tokensUsedToday || 0, k.requestsUsedToday || 0, k.tokensUsedMonth || 0,
           k.lastDailyResetAt || null, k.lastMonthlyResetAt || null,
-          k.allowedModels === null || k.allowedModels === undefined ? null : stringifyJson(k.allowedModels),
+          cols.accessRestricted, cols.accessAllow,
         ]
       );
     }
