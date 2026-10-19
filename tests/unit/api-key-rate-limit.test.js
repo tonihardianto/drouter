@@ -81,4 +81,38 @@ describe("per API key rate limits", () => {
     expect(updated.tokensUsedToday).toBe(125);
     expect(updated.tokensUsedMonth).toBe(125);
   });
+
+  it("counts tokens from each newly recorded API key request only once", async () => {
+    const { key } = await setupKey();
+    const { saveRequestUsage } = await import("@/lib/db/repos/usageRepo.js");
+    const { getApiKeyById } = await import("@/lib/db/repos/apiKeysRepo.js");
+    const usage = {
+      timestamp: "2026-09-28T10:00:00.000Z",
+      apiKey: key.key,
+      provider: "openai",
+      model: "gpt-5",
+      tokens: { prompt_tokens: 80, completion_tokens: 45 },
+    };
+
+    await saveRequestUsage(usage);
+    await saveRequestUsage(usage);
+
+    const updated = await getApiKeyById(key.id);
+    expect(updated.tokensUsedToday).toBe(125);
+    expect(updated.tokensUsedMonth).toBe(125);
+  });
+
+  it("resets expired counters when API keys are listed", async () => {
+    const { key, db } = await setupKey();
+    const { getApiKeys } = await import("@/lib/db/repos/apiKeysRepo.js");
+    db.run(
+      `UPDATE apiKeys SET tokens_used_today = 900, requests_used_today = 4, last_daily_reset_at = ? WHERE id = ?`,
+      ["2000-01-01T00:00:00.000Z", key.id]
+    );
+
+    const [updated] = await getApiKeys();
+
+    expect(updated.tokensUsedToday).toBe(0);
+    expect(updated.requestsUsedToday).toBe(0);
+  });
 });

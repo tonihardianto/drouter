@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { incrementApiKeyUsage } from "./apiKeysRepo.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
@@ -305,6 +306,7 @@ export async function saveRequestUsage(entry) {
     });
 
     if (inserted) {
+      await incrementApiKeyUsage(entry.apiKey, Number(promptTokens) + Number(completionTokens));
       pushToRing(entry);
       scheduleStatsEvent("update", 250);
     }

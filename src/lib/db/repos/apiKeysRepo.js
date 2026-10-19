@@ -75,8 +75,40 @@ function isPastLocalMonth(timestamp, now) {
 
 export async function getApiKeys() {
   const db = await getAdapter();
-  const rows = db.all(`SELECT * FROM apiKeys ORDER BY createdAt ASC`);
-  return rows.map(rowToKey);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  let keys = [];
+
+  db.transaction(() => {
+    const rows = db.all(`SELECT * FROM apiKeys ORDER BY createdAt ASC`);
+    keys = rows.map((row) => {
+      const dailyReset = isPastLocalDate(row.last_daily_reset_at, now);
+      const monthlyReset = isPastLocalMonth(row.last_monthly_reset_at, now);
+      if (dailyReset || monthlyReset) {
+        db.run(
+          `UPDATE apiKeys SET tokens_used_today = ?, requests_used_today = ?, tokens_used_month = ?, last_daily_reset_at = ?, last_monthly_reset_at = ? WHERE id = ?`,
+          [
+            dailyReset ? 0 : row.tokens_used_today,
+            dailyReset ? 0 : row.requests_used_today,
+            monthlyReset ? 0 : row.tokens_used_month,
+            dailyReset ? nowIso : row.last_daily_reset_at,
+            monthlyReset ? nowIso : row.last_monthly_reset_at,
+            row.id,
+          ]
+        );
+      }
+      return rowToKey({
+        ...row,
+        tokens_used_today: dailyReset ? 0 : row.tokens_used_today,
+        requests_used_today: dailyReset ? 0 : row.requests_used_today,
+        tokens_used_month: monthlyReset ? 0 : row.tokens_used_month,
+        last_daily_reset_at: dailyReset ? nowIso : row.last_daily_reset_at,
+        last_monthly_reset_at: monthlyReset ? nowIso : row.last_monthly_reset_at,
+      });
+    });
+  });
+
+  return keys;
 }
 
 export async function getApiKeyById(id) {

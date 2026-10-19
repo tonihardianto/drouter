@@ -1083,6 +1083,9 @@ export default function APIPageClient({ machineId }) {
                   <p className="text-xs text-text-muted mt-1">
                     Today: {key.tokensUsedToday || 0} / {key.dailyTokenLimit == null ? "Unlimited" : key.dailyTokenLimit} tokens · {key.allowedModels === null ? "All models" : `${key.allowedModels?.length || 0} models`}
                   </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Month: {key.tokensUsedMonth || 0} / {key.monthlyTokenLimit == null ? "Unlimited" : key.monthlyTokenLimit} tokens
+                  </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
