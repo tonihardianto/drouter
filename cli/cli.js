@@ -3,7 +3,6 @@
 const { spawn, exec, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
-const https = require("https");
 const net = require("net");
 const os = require("os");
 
@@ -173,17 +172,6 @@ if (skipUpdate && !trayMode && !process.stdin.isTTY) {
 
 // Always use Node.js runtime with absolute path
 const RUNTIME = process.execPath;
-
-// Compare semver versions: returns 1 if a > b, -1 if a < b, 0 if equal
-function compareVersions(a, b) {
-  const partsA = a.split(".").map(Number);
-  const partsB = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (partsA[i] > partsB[i]) return 1;
-    if (partsA[i] < partsB[i]) return -1;
-  }
-  return 0;
-}
 
 // Get app data dir (matches app/src/lib/dataDir.js convention)
 function getAppDataDir() {
@@ -455,55 +443,6 @@ function isRestrictedEnvironment() {
   return null;
 }
 
-// Check if new version available, return latest version or null
-function checkForUpdate() {
-  return new Promise((resolve) => {
-    if (skipUpdate) {
-      resolve(null);
-      return;
-    }
-
-    const spinner = createSpinner("Checking for updates...").start();
-    let resolved = false;
-
-    const safetyTimeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        spinner.stop();
-        resolve(null);
-      }
-    }, 8000);
-
-    const done = (version) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(safetyTimeout);
-      spinner.stop();
-      resolve(version);
-    };
-
-    const req = https.get(`https://registry.npmjs.org/${pkg.name}/latest`, { timeout: 3000 }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try {
-          const latest = JSON.parse(data);
-          if (latest.version && compareVersions(latest.version, pkg.version) > 0) {
-            done(latest.version);
-          } else {
-            done(null);
-          }
-        } catch (e) {
-          done(null);
-        }
-      });
-    });
-
-    req.on("error", () => done(null));
-    req.on("timeout", () => { req.destroy(); done(null); });
-  });
-}
-
 // Open browser
 function openBrowser(url) {
   const platform = process.platform;
@@ -538,8 +477,7 @@ if (!fs.existsSync(serverPath)) {
   process.exit(1);
 }
 
-// Start server immediately; run update check in parallel (not on the critical path).
-const updatePromise = checkForUpdate();
+const updatePromise = Promise.resolve(null);
 killAllAppProcesses(port)
   .then(() => killProcessOnPort(port))
   .then(() => startServer(updatePromise));
